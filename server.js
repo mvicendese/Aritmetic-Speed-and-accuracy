@@ -3,6 +3,13 @@ import cors from 'cors';
 import { Low } from 'lowdb';
 import { JSONFile } from 'lowdb/node';
 import { nanoid } from 'nanoid';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+// --- Server Setup ---
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 
 // --- Default Data (from frontend constants) ---
 const DEFAULT_LEVEL_PARAMS_INT = [
@@ -55,15 +62,22 @@ await db.write();
 
 // --- Express App Setup ---
 const app = express();
-app.use(cors()); // Allow requests from the frontend
+app.use(cors()); // Allow requests from any origin
 app.use(express.json()); // Parse JSON bodies
 
-const PORT = 3001;
+// Simple logging middleware to see requests in Google Cloud logs
+app.use((req, res, next) => {
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
+  next();
+});
 
-// --- API Endpoints ---
+// Use the PORT environment variable provided by the cloud service, or 3001 for local development
+const PORT = process.env.PORT || 3001;
 
-// POST /login
-app.post('/login', (req, res) => {
+// --- API Endpoints (prefixed with /api) ---
+
+// POST /api/login
+app.post('/api/login', (req, res) => {
     const { usernameOrEmail, password } = req.body;
     const formattedInput = usernameOrEmail.toLowerCase().replace('.', '');
 
@@ -85,13 +99,13 @@ app.post('/login', (req, res) => {
     }
 });
 
-// GET /users
-app.get('/users', (req, res) => {
+// GET /api/users
+app.get('/api/users', (req, res) => {
     res.json(db.data.users);
 });
 
-// POST /users
-app.post('/users', async (req, res) => {
+// POST /api/users
+app.post('/api/users', async (req, res) => {
     const userData = req.body;
     const newUser = { ...userData, id: `user-${nanoid(8)}` };
     db.data.users.push(newUser);
@@ -104,8 +118,8 @@ app.post('/users', async (req, res) => {
     res.status(201).json(newUser);
 });
 
-// PUT /users/:id
-app.put('/users/:id', async (req, res) => {
+// PUT /api/users/:id
+app.put('/api/users/:id', async (req, res) => {
     const { id } = req.params;
     const updates = req.body;
     const userIndex = db.data.users.findIndex(u => u.id === id);
@@ -119,15 +133,15 @@ app.put('/users/:id', async (req, res) => {
     res.json(db.data.users[userIndex]);
 });
 
-// GET /teacher/:teacherId/classes
-app.get('/teacher/:teacherId/classes', (req, res) => {
+// GET /api/teacher/:teacherId/classes
+app.get('/api/teacher/:teacherId/classes', (req, res) => {
     const { teacherId } = req.params;
     const classes = db.data.classes.filter(c => c.teacherIds.includes(teacherId));
     res.json(classes);
 });
 
-// POST /classes
-app.post('/classes', async (req, res) => {
+// POST /api/classes
+app.post('/api/classes', async (req, res) => {
     const { name, teacherId } = req.body;
     const newClass = {
         id: `class-${nanoid(8)}`,
@@ -140,8 +154,8 @@ app.post('/classes', async (req, res) => {
     res.status(201).json(newClass);
 });
 
-// PUT /classes/:classId/students
-app.put('/classes/:classId/students', async (req, res) => {
+// PUT /api/classes/:classId/students
+app.put('/api/classes/:classId/students', async (req, res) => {
     const { classId } = req.params;
     const { studentId } = req.body;
     const classIndex = db.data.classes.findIndex(c => c.id === classId);
@@ -157,8 +171,8 @@ app.put('/classes/:classId/students', async (req, res) => {
     res.json(db.data.classes[classIndex]);
 });
 
-// POST /create-student-and-add
-app.post('/create-student-and-add', async (req, res) => {
+// POST /api/create-student-and-add
+app.post('/api/create-student-and-add', async (req, res) => {
     const { studentData, classId } = req.body;
     
     // Create student
@@ -182,15 +196,15 @@ app.post('/create-student-and-add', async (req, res) => {
     res.status(201).json({ newUser: newStudent, updatedClass: db.data.classes[classIndex] });
 });
 
-// GET /students/:studentId/profile
-app.get('/students/:studentId/profile', (req, res) => {
+// GET /api/students/:studentId/profile
+app.get('/api/students/:studentId/profile', (req, res) => {
     const { studentId } = req.params;
     const profile = db.data.studentProfiles[studentId] || { ...defaultStudentData };
     res.json(profile);
 });
 
-// POST /students/:studentId/profile/test
-app.post('/students/:studentId/profile/test', async (req, res) => {
+// POST /api/students/:studentId/profile/test
+app.post('/api/students/:studentId/profile/test', async (req, res) => {
     const { studentId } = req.params;
     const { attempt } = req.body;
 
@@ -227,21 +241,32 @@ app.post('/students/:studentId/profile/test', async (req, res) => {
     res.json(newStudentData);
 });
 
-// GET /level-params
-app.get('/level-params', (req, res) => {
+// GET /api/level-params
+app.get('/api/level-params', (req, res) => {
     res.json({
         levelParamsInt: db.data.levelParamsInt,
         levelParamsFrac: db.data.levelParamsFrac,
     });
 });
 
-// PUT /level-params
-app.put('/level-params', async (req, res) => {
+// PUT /api/level-params
+app.put('/api/level-params', async (req, res) => {
     const { levelParamsInt, levelParamsFrac } = req.body;
     if (levelParamsInt) db.data.levelParamsInt = levelParamsInt;
     if (levelParamsFrac) db.data.levelParamsFrac = levelParamsFrac;
     await db.write();
     res.status(200).json({ message: 'Parameters updated' });
+});
+
+
+// --- Static File Serving ---
+// Serve the frontend files from the current directory
+app.use(express.static(__dirname));
+
+// For any other GET request that doesn't match an API route or a file,
+// send the index.html file. This allows the client-side app to handle routing.
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, 'index.html'));
 });
 
 

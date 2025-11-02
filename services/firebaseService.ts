@@ -1,8 +1,7 @@
 import { AppDatabase, User, Class, Role, StudentUser, StudentData, TestAttempt } from '../types';
 
-// IMPORTANT: When running the server on another machine, change 'localhost'
-// to the local network IP address of the server computer (e.g., 'http://192.168.1.100:3001').
-const API_BASE_URL = 'http://localhost:3001';
+// IMPORTANT: This now uses a relative path. The server will handle routing '/api' requests.
+const API_BASE_URL = '/api';
 
 const handleResponse = async <T>(response: Response): Promise<T> => {
     if (!response.ok) {
