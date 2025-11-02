@@ -260,13 +260,13 @@ app.put('/api/level-params', async (req, res) => {
 
 
 // --- Static File Serving ---
-// Serve the frontend files from the current directory
-app.use(express.static(__dirname));
+// Serve the production-ready frontend files from the 'dist' directory
+app.use(express.static(path.join(__dirname, 'dist')));
 
 // For any other GET request that doesn't match an API route or a file,
 // send the index.html file. This allows the client-side app to handle routing.
 app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, 'index.html'));
+  res.sendFile(path.join(__dirname, 'dist', 'index.html'));
 });
 
 
