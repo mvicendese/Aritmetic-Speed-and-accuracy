@@ -12,10 +12,11 @@ const NumberPad: React.FC<NumberPadProps> = ({ onKeyPress }) => {
     <button
       onClick={() => onKeyPress(value)}
       className="bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 rounded-lg text-2xl font-bold transition-colors duration-150 aspect-square flex items-center justify-center shadow-md"
+      aria-label={value === 'Backspace' ? 'Backspace' : `Number ${value}`}
     >
       {value === 'Backspace' ? (
         <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m-2-2h-8a2 2 0 01-2-2V7a2 2 0 012-2h8a2 2 0 012 2v2" />
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 17l-5-5 5-5m-4 5h12" />
         </svg>
       ) : (
         value

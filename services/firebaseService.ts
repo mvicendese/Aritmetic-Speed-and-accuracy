@@ -1,145 +1,353 @@
 import { AppDatabase, User, Class, Role, StudentUser, StudentData, TestAttempt } from '../types';
+import { DEFAULT_LEVEL_PARAMS_INT, DEFAULT_LEVEL_PARAMS_FRAC } from '../constants';
 
-// IMPORTANT: This now uses a relative path. The server will handle routing '/api' requests.
-const API_BASE_URL = '/api';
+// --- FIREBASE CONFIGURATION ---
+// IMPORTANT: Replace these placeholder values with your own Firebase project details.
+const FIREBASE_PROJECT_ID = 'arithmetic-sprint'; // <-- Your Project ID is set!
+const FIREBASE_API_KEY = 'AIzaSyAb0Ih_96z8z5NIVNZy8rpw6iz43sl9r_c';   // <-- Your Web API Key is now set!
 
-const handleResponse = async <T>(response: Response): Promise<T> => {
-    if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.message || 'Server error');
+const BASE_URL = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents`;
+
+// --- Firestore Data Conversion Helpers ---
+
+// Converts a Firestore document's `fields` object into a regular JavaScript object.
+const fromFirestore = (fields: any): any => {
+  if (!fields) return {};
+  const result: any = {};
+  for (const key in fields) {
+    const valueType = Object.keys(fields[key])[0];
+    // Handle nested maps (objects) recursively
+    if (valueType === 'mapValue') {
+      result[key] = fromFirestore(fields[key][valueType].fields);
+    } 
+    // Handle arrays
+    else if (valueType === 'arrayValue') {
+       result[key] = (fields[key][valueType].values || []).map((v: any) => fromFirestore({ temp: v }).temp);
     }
-    return response.json() as Promise<T>;
+    // Handle all other primitive types
+    else {
+      result[key] = fields[key][valueType];
+    }
+  }
+  return result;
 };
+
+
+// Converts a regular JavaScript object into a Firestore document's `fields` object.
+const toFirestore = (data: any): any => {
+  const fields: any = {};
+  for (const key in data) {
+    if (data[key] === undefined) continue; // Don't serialize undefined values
+    const value = data[key];
+    if (typeof value === 'string') {
+      fields[key] = { stringValue: value };
+    } else if (typeof value === 'number') {
+      // Firestore REST API distinguishes between integer and double
+      if (Number.isInteger(value)) {
+        fields[key] = { integerValue: value };
+      } else {
+        fields[key] = { doubleValue: value };
+      }
+    } else if (typeof value === 'boolean') {
+      fields[key] = { booleanValue: value };
+    } else if (Array.isArray(value)) {
+      // Ensure we handle empty arrays correctly
+      fields[key] = { arrayValue: { values: value.map(v => toFirestore({v}).v) } };
+    } else if (typeof value === 'object' && value !== null) {
+      fields[key] = { mapValue: { fields: toFirestore(value) } };
+    } else if (value === null) {
+      fields[key] = { nullValue: null };
+    }
+  }
+  return fields;
+};
+
 
 // --- AUTHENTICATION API ---
 
-export const login = async (usernameOrEmail: string, password: string): Promise<User | null> => {
+export const login = async (usernameOrEmail: string, password: string): Promise<{ user: User | null; error?: string }> => {
+  if (FIREBASE_PROJECT_ID.includes('YOUR_PROJECT_ID') || FIREBASE_API_KEY.includes('YOUR_WEB_API_KEY')) {
+    return { user: null, error: "Firebase is not configured. Please update services/firebaseService.ts with your Project ID and API Key." };
+  }
+  
+  const trimmedUsernameOrEmail = usernameOrEmail.trim().toLowerCase();
+  
+  // This simulates login by querying the user collection.
+  // For a real production app, use Firebase Authentication.
   try {
-    const response = await fetch(`${API_BASE_URL}/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ usernameOrEmail, password })
+    const users = await getUsers();
+    const user = users.find(u => {
+       if ((u.role === 'admin' || u.role === 'teacher') && 'email' in u) {
+          return u.email.toLowerCase() === trimmedUsernameOrEmail;
+      }
+      if (u.role === 'student') {
+          const studentUsername = `${u.firstName.toLowerCase()}.${u.surname.toLowerCase()}`;
+          const normalizedInput = trimmedUsernameOrEmail.replace(/\s/g, '.');
+          return studentUsername === normalizedInput;
+      }
+      return false;
     });
-    if (!response.ok) {
-        logout(); // Clear any previous session
-        return null;
+
+    if (user && user.password === password.trim()) {
+      sessionStorage.setItem('currentUser', JSON.stringify(user));
+      return { user };
     }
-    const user = await response.json();
-    // In a real app, we'd store a session token (JWT)
-    sessionStorage.setItem('currentUser', JSON.stringify(user));
-    return user;
-  } catch (e) {
-      console.error("Login failed:", e);
-      logout();
-      return null;
+    return { user: null, error: 'Invalid credentials. For students, username is firstname.lastname (e.g., john.doe)' };
+  } catch(error) {
+    console.error("Login failed:", error);
+    const err = error as Error;
+    if (err.message.includes('API key not valid')) {
+       return { user: null, error: 'The provided Firebase API Key is invalid. Please check it in firebaseService.ts.' };
+    }
+    return { user: null, error: 'Could not connect to the server. Please try again later.' };
   }
 };
 
-export const logout = async (): Promise<void> => {
+export const logout = (): void => {
     sessionStorage.removeItem('currentUser');
 };
 
-export const getCurrentUser = async (): Promise<User | null> => {
+export const getCurrentUser = (): User | null => {
     try {
         const userJson = sessionStorage.getItem('currentUser');
         return userJson ? JSON.parse(userJson) : null;
     } catch (error) {
         console.error("Failed to parse user from sessionStorage", error);
-        sessionStorage.removeItem('currentUser'); // Clear corrupted data
+        sessionStorage.removeItem('currentUser');
         return null;
     }
-}
-
+};
 
 // --- USER MANAGEMENT API ---
-
 export const getUsers = async (): Promise<User[]> => {
-    const response = await fetch(`${API_BASE_URL}/users`);
-    return handleResponse<User[]>(response);
+    const res = await fetch(`${BASE_URL}/users?key=${FIREBASE_API_KEY}`);
+    if (!res.ok) {
+      const errorData = await res.json();
+      console.error('Firebase Error:', errorData);
+      throw new Error(`Failed to fetch users: ${errorData.error.message}`);
+    }
+    const data = await res.json();
+    return data.documents?.map((doc: any) => ({ id: doc.name.split('/').pop(), ...fromFirestore(doc.fields) })) || [];
 };
 
 export const createUser = async (userData: Omit<User, 'id'>): Promise<User> => {
-    const response = await fetch(`${API_BASE_URL}/users`, {
-        method: 'POST',
+    // Firestore can auto-generate IDs, but for this structure we'll create them client-side
+    const docId = `user-${crypto.randomUUID().slice(0, 8)}`; 
+    
+    // Create the full user object including the ID we'll use in the path
+    const newUser: User = { ...userData, id: docId } as User;
+
+    const res = await fetch(`${BASE_URL}/users/${docId}?key=${FIREBASE_API_KEY}`, {
+        method: 'PATCH', // Using PATCH on a non-existent doc creates it.
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(userData)
+        body: JSON.stringify({ fields: toFirestore(newUser) }),
     });
-    return handleResponse<User>(response);
+
+    if (!res.ok) {
+        const errorData = await res.json();
+        console.error('Firebase Error:', errorData);
+        throw new Error(`Failed to create user: ${errorData.error.message}`);
+    }
+    
+    if (newUser.role === 'student') {
+        // Create initial student profile
+        await updateStudentProfile(newUser.id, {
+          currentLevel: 1,
+          history: [],
+          consecutiveFastTrackCount: 0,
+        });
+    }
+
+    return newUser;
 };
 
-export const updateUser = async(userId: string, updates: Partial<StudentUser>): Promise<User> => {
-    const response = await fetch(`${API_BASE_URL}/users/${userId}`, {
-        method: 'PUT',
+
+export const updateUser = async (userId: string, updates: Partial<StudentUser>): Promise<User> => {
+    // Build the `updateMask` query parameter to tell Firestore which fields to update.
+    const updateMask = Object.keys(updates).map(key => `updateMask.fieldPaths=${key}`).join('&');
+
+    const res = await fetch(`${BASE_URL}/users/${userId}?${updateMask}&key=${FIREBASE_API_KEY}`, {
+        method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updates)
+        body: JSON.stringify({ fields: toFirestore(updates) }),
     });
-    return handleResponse<User>(response);
+
+    if (!res.ok) {
+        const errorData = await res.json();
+        console.error('Firebase Error:', errorData);
+        throw new Error(`Failed to update user: ${errorData.error.message}`);
+    }
+    const updatedDoc = await res.json();
+    return { id: updatedDoc.name.split('/').pop(), ...fromFirestore(updatedDoc.fields) };
 };
 
 export const createStudentAndAddToClass = async (
     studentData: Omit<StudentUser, 'id' | 'role' | 'locked'>,
     classId: string
 ): Promise<{ newUser: StudentUser, updatedClass: Class }> => {
-    const response = await fetch(`${API_BASE_URL}/create-student-and-add`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ studentData, classId })
-    });
-    return handleResponse<{ newUser: StudentUser, updatedClass: Class }>(response);
-}
+    const studentPayload: Omit<StudentUser, 'id'> = {
+        ...studentData,
+        role: 'student',
+        locked: false,
+    };
+    const newUser = await createUser(studentPayload) as StudentUser;
+    
+    const updatedClass = await addStudentToClass(classId, newUser.id);
 
+    return { newUser, updatedClass };
+};
 
 // --- CLASS MANAGEMENT API ---
-
 export const getClassesForTeacher = async (teacherId: string): Promise<Class[]> => {
-    const response = await fetch(`${API_BASE_URL}/teacher/${teacherId}/classes`);
-    return handleResponse<Class[]>(response);
+    // Firestore REST API for queries is complex. A simple fetch and client-side filter is easier here.
+    // For production apps, consider more advanced querying or Firebase SDKs.
+    const res = await fetch(`${BASE_URL}/classes?key=${FIREBASE_API_KEY}`);
+    if (!res.ok) throw new Error('Failed to fetch classes');
+    const data = await res.json();
+    const allClasses: Class[] = data.documents?.map((doc: any) => ({ id: doc.name.split('/').pop(), ...fromFirestore(doc.fields) })) || [];
+    return allClasses.filter((c: Class) => Array.isArray(c.teacherIds) && c.teacherIds.includes(teacherId));
 };
 
 export const createClass = async (name: string, teacherId: string): Promise<Class> => {
-    const response = await fetch(`${API_BASE_URL}/classes`, {
-        method: 'POST',
+    const id = `class-${crypto.randomUUID().slice(0, 8)}`;
+    const newClass: Class = {
+        id,
+        name,
+        teacherIds: [teacherId],
+        studentIds: [],
+    };
+
+    await fetch(`${BASE_URL}/classes/${id}?key=${FIREBASE_API_KEY}`, {
+        method: 'PATCH', // Using PATCH on a non-existent doc creates it.
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, teacherId })
+        body: JSON.stringify({ fields: toFirestore(newClass) }),
     });
-    return handleResponse<Class>(response);
-}
+    
+    return newClass;
+};
 
 export const addStudentToClass = async (classId: string, studentId: string): Promise<Class> => {
-    const response = await fetch(`${API_BASE_URL}/classes/${classId}/students`, {
-        method: 'PUT',
+    const res = await fetch(`${BASE_URL}/classes/${classId}?key=${FIREBASE_API_KEY}`);
+    if (!res.ok) throw new Error('Class not found');
+    const doc = await res.json();
+    const currentClass: Class = { id: doc.name.split('/').pop(), ...fromFirestore(doc.fields) };
+    
+    // Ensure studentIds is an array before pushing
+    const studentIds = Array.isArray(currentClass.studentIds) ? currentClass.studentIds : [];
+
+    if (!studentIds.includes(studentId)) {
+        studentIds.push(studentId);
+    }
+    
+    const updatedClassData = { ...currentClass, studentIds };
+
+    await fetch(`${BASE_URL}/classes/${classId}?updateMask.fieldPaths=studentIds&key=${FIREBASE_API_KEY}`, {
+        method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ studentId })
+        body: JSON.stringify({ fields: toFirestore({ studentIds: updatedClassData.studentIds }) }),
     });
-    return handleResponse<Class>(response);
-}
+
+    return updatedClassData;
+};
 
 // --- STUDENT DATA API ---
+const updateStudentProfile = async (studentId: string, data: StudentData): Promise<void> => {
+   await fetch(`${BASE_URL}/studentProfiles/${studentId}?key=${FIREBASE_API_KEY}`, {
+        method: 'PATCH', // Using PATCH on a non-existent doc creates it.
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fields: toFirestore(data) }),
+    });
+};
 
 export const getStudentProfile = async (studentId: string): Promise<StudentData> => {
-    const response = await fetch(`${API_BASE_URL}/students/${studentId}/profile`);
-    return handleResponse<StudentData>(response);
-}
+    const res = await fetch(`${BASE_URL}/studentProfiles/${studentId}?key=${FIREBASE_API_KEY}`);
+    if (!res.ok) {
+        if (res.status === 404) {
+            // If profile doesn't exist, create a default one
+             const defaultProfile: StudentData = {
+                currentLevel: 1,
+                history: [],
+                consecutiveFastTrackCount: 0,
+            };
+            await updateStudentProfile(studentId, defaultProfile);
+            return defaultProfile;
+        }
+        throw new Error('Failed to fetch student profile');
+    }
+    const doc = await res.json();
+    return fromFirestore(doc.fields);
+};
 
 export const updateStudentProfileAfterTest = async (studentId: string, attempt: TestAttempt): Promise<StudentData> => {
-    const response = await fetch(`${API_BASE_URL}/students/${studentId}/profile/test`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ attempt })
-    });
-    return handleResponse<StudentData>(response);
-}
+    const studentData = await getStudentProfile(studentId);
+    let newLevel = studentData.currentLevel;
+    let newConsecutiveCount = studentData.consecutiveFastTrackCount;
+    
+    if (attempt.correctCount > 22) {
+        if (attempt.timeRemaining > 60) newLevel += 2;
+        else if (attempt.timeRemaining > 20) newLevel += 1;
+        newConsecutiveCount = 0;
+    } else if (attempt.correctCount >= 20 && attempt.timeRemaining < 20) {
+        newConsecutiveCount += 1;
+        if (newConsecutiveCount >= 3) {
+            newLevel += 1;
+            newConsecutiveCount = 0;
+        }
+    } else {
+        newConsecutiveCount = 0;
+    }
+    
+    newLevel = Math.min(newLevel, 20);
+    newLevel = Math.max(newLevel, 1);
+
+    // Ensure history is an array
+    const history = Array.isArray(studentData.history) ? studentData.history : [];
+
+    const newStudentData: StudentData = {
+      currentLevel: newLevel,
+      history: [...history, attempt],
+      consecutiveFastTrackCount: newConsecutiveCount,
+    };
+
+    await updateStudentProfile(studentId, newStudentData);
+    return newStudentData;
+};
+
 
 // --- LEVEL PARAMS API ---
+// These are stored in a single document for simplicity
+const CONFIG_DOC_ID = 'appConfig';
+
 export const getLevelParams = async (): Promise<{ levelParamsInt: number[][], levelParamsFrac: number[][] }> => {
-    const response = await fetch(`${API_BASE_URL}/level-params`);
-    return handleResponse<{ levelParamsInt: number[][], levelParamsFrac: number[][] }>(response);
+    const res = await fetch(`${BASE_URL}/config/${CONFIG_DOC_ID}?key=${FIREBASE_API_KEY}`);
+    if (!res.ok) {
+         if (res.status === 404) { // Config doesn't exist, create it
+            const defaults = {
+                levelParamsInt: DEFAULT_LEVEL_PARAMS_INT,
+                levelParamsFrac: DEFAULT_LEVEL_PARAMS_FRAC,
+            };
+            await updateLevelParams(defaults);
+            return defaults;
+        }
+        throw new Error('Failed to fetch level params');
+    }
+    const doc = await res.json();
+    const data = fromFirestore(doc.fields);
+    
+    // Ensure the data structure is correct, falling back to defaults if needed.
+    return {
+        levelParamsInt: data.levelParamsInt || DEFAULT_LEVEL_PARAMS_INT,
+        levelParamsFrac: data.levelParamsFrac || DEFAULT_LEVEL_PARAMS_FRAC,
+    }
 };
 
 export const updateLevelParams = async (params: { levelParamsInt?: number[][], levelParamsFrac?: number[][] }): Promise<void> => {
-    await fetch(`${API_BASE_URL}/level-params`, {
-        method: 'PUT',
+     // We need to specify which fields are being updated for PATCH to work correctly.
+     const updateMask = Object.keys(params).map(key => `updateMask.fieldPaths=${key}`).join('&');
+
+     await fetch(`${BASE_URL}/config/${CONFIG_DOC_ID}?${updateMask}&key=${FIREBASE_API_KEY}`, {
+        method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(params)
+        body: JSON.stringify({ fields: toFirestore(params) }),
     });
-}
+};

@@ -14,8 +14,8 @@ export default function App() {
 
   useEffect(() => {
     // Check for a logged-in user on app startup
-    const checkSession = async () => {
-      const user = await api.getCurrentUser();
+    const checkSession = () => {
+      const user = api.getCurrentUser();
       setCurrentUser(user);
       setAuthStatus(user ? 'authenticated' : 'unauthenticated');
     };
@@ -27,8 +27,8 @@ export default function App() {
     setAuthStatus('authenticated');
   };
 
-  const handleLogout = async () => {
-    await api.logout();
+  const handleLogout = () => {
+    api.logout();
     setCurrentUser(null);
     setAuthStatus('unauthenticated');
   };
@@ -65,13 +65,13 @@ const LoginScreen: React.FC<{ onLogin: (user: User) => void }> = ({ onLogin }) =
     setError('');
     setIsLoading(true);
     
-    const user = await api.login(email, password);
+    const result = await api.login(email, password);
     setIsLoading(false);
 
-    if (user) {
-      onLogin(user);
+    if (result.user) {
+      onLogin(result.user);
     } else {
-      setError('Invalid credentials. For students, username is firstname.lastname (e.g., john.doe)');
+      setError(result.error || 'An unknown login error occurred.');
     }
   };
 
@@ -88,7 +88,7 @@ const LoginScreen: React.FC<{ onLogin: (user: User) => void }> = ({ onLogin }) =
                         type="text" 
                         value={email} 
                         onChange={e => setEmail(e.target.value)}
-                        placeholder="e.g. admin@sprint.com or john.doe"
+                        placeholder="admin@sprint.com or john.doe"
                         className="w-full p-3 mt-1 rounded bg-slate-200 dark:bg-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
                         disabled={isLoading}
                     />
@@ -155,25 +155,35 @@ const UserManagement: React.FC = () => {
     const [formState, setFormState] = useState({ firstName: '', surname: '', email: '', password: '', role: 'teacher' as Role });
 
     useEffect(() => {
-        api.getUsers().then(data => {
-            setUsers(data);
-            setIsLoading(false);
-        });
+        setIsLoading(true);
+        api.getUsers()
+            .then(setUsers)
+            .catch(error => console.error("Failed to fetch users:", error))
+            .finally(() => setIsLoading(false));
     }, []);
 
     const handleAddUser = async (e: React.FormEvent) => {
       e.preventDefault();
       const { role, firstName, surname, email, password } = formState;
       
-      // Fix: Construct user data in a way that TypeScript can correctly infer the discriminated union type
-      // without triggering excess property checks on the base `User` union.
-      const userData = role === 'student'
-          ? { role: 'student', firstName, surname, password, locked: false }
-          : { role: 'teacher', firstName, surname, password, email };
+      // FIX: The type `Omit<User, 'id'>` is too general and causes issues with TypeScript's
+      // excess property checking on object literals. Using a more specific union type
+      // that only includes the user types that can be created here resolves the errors.
+      let userData: Omit<StudentUser, 'id'> | Omit<TeacherUser, 'id'>;
+      if (role === 'student') {
+        userData = { role: 'student', firstName, surname, password, locked: false };
+      } else {
+        userData = { role: 'teacher', firstName, surname, password, email };
+      }
 
-      const newUser = await api.createUser(userData);
-      setUsers(prev => [...prev, newUser]);
-      setFormState({ firstName: '', surname: '', email: '', password: '', role: 'teacher' as Role }); // Reset form
+      try {
+        const newUser = await api.createUser(userData);
+        setUsers(prev => [...prev, newUser]);
+        setFormState({ firstName: '', surname: '', email: '', password: '', role: 'teacher' as Role }); // Reset form
+      } catch (error) {
+        console.error("Failed to create user:", error);
+        // Optionally, show an error message to the user
+      }
     }
     
     return (
@@ -216,19 +226,24 @@ const TeacherView: React.FC<{ currentUser: TeacherUser }> = ({ currentUser }) =>
     const [newClassName, setNewClassName] = useState('');
 
     useEffect(() => {
-        api.getClassesForTeacher(currentUser.id).then(data => {
-            setTeacherClasses(data);
-            setIsLoading(false);
-        })
+        setIsLoading(true);
+        api.getClassesForTeacher(currentUser.id)
+            .then(setTeacherClasses)
+            .catch(error => console.error("Failed to fetch classes:", error))
+            .finally(() => setIsLoading(false));
     }, [currentUser.id]);
 
     const handleCreateClass = async () => {
         if (!newClassName.trim()) return;
-        const newClass = await api.createClass(newClassName, currentUser.id);
-        setTeacherClasses(prev => [...prev, newClass]);
-        setNewClassName('');
-        setShowCreateClass(false);
-        setSelectedClassId(newClass.id);
+        try {
+            const newClass = await api.createClass(newClassName, currentUser.id);
+            setTeacherClasses(prev => [...prev, newClass]);
+            setNewClassName('');
+            setShowCreateClass(false);
+            setSelectedClassId(newClass.id);
+        } catch (error) {
+            console.error("Failed to create class:", error);
+        }
     };
 
     const selectedClass = teacherClasses.find(c => c.id === selectedClassId);
@@ -280,18 +295,33 @@ const ClassDetailView: React.FC<{aClass: Class, onBack: () => void}> = ({ aClass
 
     const fetchData = useCallback(async () => {
         setIsLoading(true);
-        const users = await api.getUsers();
-        setAllUsers(users);
-        const studentIds = aClass.studentIds;
-        const studentUsers = users.filter(u => studentIds.includes(u.id)) as StudentUser[];
-        setStudents(studentUsers);
-        
-        const profiles: Record<string, StudentData> = {};
-        for (const student of studentUsers) {
-            profiles[student.id] = await api.getStudentProfile(student.id);
+        try {
+            const users = await api.getUsers();
+            setAllUsers(users);
+            const studentIds = aClass.studentIds;
+            const studentUsers = users.filter(u => u.role === 'student' && studentIds.includes(u.id)) as StudentUser[];
+            setStudents(studentUsers);
+            
+            const profilePromises = studentUsers.map(student => 
+                api.getStudentProfile(student.id).catch(err => {
+                    console.error(`Failed to load profile for ${student.id}`, err);
+                    return null; // Return null on error for this specific profile
+                })
+            );
+            const resolvedProfiles = await Promise.all(profilePromises);
+            
+            const profiles: Record<string, StudentData> = {};
+            studentUsers.forEach((student, index) => {
+                if (resolvedProfiles[index]) {
+                    profiles[student.id] = resolvedProfiles[index] as StudentData;
+                }
+            });
+            setStudentProfiles(profiles);
+        } catch (error) {
+            console.error("Failed to fetch class details:", error);
+        } finally {
+            setIsLoading(false);
         }
-        setStudentProfiles(profiles);
-        setIsLoading(false);
     }, [aClass.studentIds]);
 
     useEffect(() => {
@@ -303,42 +333,57 @@ const ClassDetailView: React.FC<{aClass: Class, onBack: () => void}> = ({ aClass
     const toggleLock = async (studentId: string) => {
         const student = students.find(s => s.id === studentId);
         if(!student) return;
-        const updatedStudent = await api.updateUser(studentId, { locked: !student.locked });
-        setStudents(prev => prev.map(s => s.id === studentId ? updatedStudent as StudentUser : s));
+        try {
+            const updatedStudent = await api.updateUser(studentId, { locked: !student.locked });
+            setStudents(prev => prev.map(s => s.id === studentId ? updatedStudent as StudentUser : s));
+        } catch(e) { console.error(e); }
     };
 
     const addStudent = async (studentId: string) => {
-        await api.addStudentToClass(aClass.id, studentId);
-        fetchData(); // Refetch data to update the view
+        try {
+            await api.addStudentToClass(aClass.id, studentId);
+            fetchData(); // Refetch data to update the view
+        } catch (e) { console.error(e); }
     };
     
     const toggleLockAll = async (lock: boolean) => {
-        const promises = students.map(s => api.updateUser(s.id, { locked: lock }));
-        await Promise.all(promises);
-        fetchData(); // Refetch data
+        try {
+            const promises = students.map(s => api.updateUser(s.id, { locked: lock }));
+            await Promise.all(promises);
+            fetchData(); // Refetch data
+        } catch (e) { console.error(e); }
     };
 
     const handleCreateAndAddStudent = async (e: React.FormEvent) => {
         e.preventDefault();
         const { firstName, surname, password } = newStudentForm;
         if (!firstName.trim() || !surname.trim() || !password.trim()) return;
-
-        await api.createStudentAndAddToClass({firstName, surname, password}, aClass.id);
-        setNewStudentForm({ firstName: '', surname: '', password: '' });
-        setShowCreateStudent(false);
-        fetchData(); // Refetch all data
+        try {
+            await api.createStudentAndAddToClass({firstName, surname, password}, aClass.id);
+            setNewStudentForm({ firstName: '', surname: '', password: '' });
+            setShowCreateStudent(false);
+            fetchData(); // Refetch all data
+        } catch (e) { console.error(e); }
     };
 
     const handleGetTrends = async () => {
       setIsLoadingTrends(true);
       setClassTrends('');
-      const studentDataForClass = students.map(s => ({
-        studentName: `${s.firstName} ${s.surname}`,
-        data: studentProfiles[s.id]
-      }));
-      const trends = await analyzeClassTrends(studentDataForClass, TOTAL_QUESTIONS);
-      setClassTrends(trends);
-      setIsLoadingTrends(false);
+      try {
+        const studentDataForClass = students
+          .map(s => ({
+            studentName: `${s.firstName} ${s.surname}`,
+            data: studentProfiles[s.id]
+          }))
+          .filter(s => s.data); // Filter out students for whom profile loading might have failed
+        const trends = await analyzeClassTrends(studentDataForClass, TOTAL_QUESTIONS);
+        setClassTrends(trends);
+      } catch (e) {
+        console.error(e);
+        setClassTrends("Could not analyze trends at this time.");
+      } finally {
+        setIsLoadingTrends(false);
+      }
     };
 
     if (isLoading) return <div>Loading class details...</div>;
@@ -415,16 +460,27 @@ const StudentView: React.FC<{ currentUser: StudentUser }> = ({ currentUser }) =>
   const [levelParams, setLevelParams] = useState<{levelParamsInt: number[][], levelParamsFrac: number[][] } | null>(null)
   
   useEffect(() => {
-    // Fetch initial student data
-    api.getStudentProfile(currentUser.id).then(setStudentData);
-    api.getLevelParams().then(setLevelParams);
+    Promise.all([
+        api.getStudentProfile(currentUser.id),
+        api.getLevelParams()
+    ]).then(([studentProfile, levelParamsData]) => {
+        setStudentData(studentProfile);
+        setLevelParams(levelParamsData);
+    }).catch(error => console.error("Failed to load student data:", error));
   }, [currentUser.id]);
   
   const handleTestComplete = async (attempt: TestAttempt) => {
-    const newStudentData = await api.updateStudentProfileAfterTest(currentUser.id, attempt);
-    setStudentData(newStudentData);
-    setLastAttempt(attempt);
-    setGameState('results');
+    try {
+        const newStudentData = await api.updateStudentProfileAfterTest(currentUser.id, attempt);
+        setStudentData(newStudentData);
+        setLastAttempt(attempt);
+        setGameState('results');
+    } catch (e) {
+        console.error(e);
+        // If the update fails, still show results but maybe with a warning
+        setLastAttempt(attempt);
+        setGameState('results');
+    }
   };
   
   if (currentUser.locked) {
@@ -452,10 +508,30 @@ const StudentView: React.FC<{ currentUser: StudentUser }> = ({ currentUser }) =>
   if (gameState === 'results' && lastAttempt) {
     return <ResultsScreen attempt={lastAttempt} studentHistory={studentData.history} onRestart={() => setGameState('idle')} />;
   }
+  
+  const isFirstTime = studentData.history.length === 0;
+
+  if (isFirstTime) {
+    return (
+        <div className="text-center bg-white dark:bg-slate-800 p-8 rounded-lg shadow-lg max-w-2xl mx-auto">
+          <h2 className="text-3xl font-bold mb-2">Welcome, {currentUser.firstName}! Let's get started.</h2>
+          <p className="text-lg text-slate-600 dark:text-slate-300 my-4">
+              This is a timed test to help you practice your math skills. Try your best, and don't worry about mistakes! Your teacher will use the results to help you learn.
+          </p>
+          <p className="mb-6">You are starting at Level <span className="font-bold text-blue-500">1</span>.</p>
+          <button
+            onClick={() => setGameState('testing')}
+            className="bg-green-600 hover:bg-green-700 text-white font-bold py-4 px-10 rounded-lg text-2xl animate-pulse-start"
+          >
+            Start First Test
+          </button>
+        </div>
+    );
+  }
 
   return (
     <div className="text-center">
-      <h2 className="text-3xl font-bold mb-2">Welcome, {currentUser.firstName}!</h2>
+      <h2 className="text-3xl font-bold mb-2">Welcome back, {currentUser.firstName}!</h2>
       <p className="text-xl mb-4">You are on Level <span className="font-bold text-blue-500">{studentData.currentLevel}</span></p>
       <button
         onClick={() => setGameState('testing')}
@@ -488,7 +564,9 @@ const LevelParametersEditor: React.FC = () => {
     const [selectedLevel, setSelectedLevel] = useState<number>(1);
     
     useEffect(() => {
-      api.getLevelParams().then(setLevelParams);
+      api.getLevelParams()
+        .then(setLevelParams)
+        .catch(error => console.error("Failed to load level parameters:", error));
     }, []);
 
     if(!levelParams) return <div>Loading level parameters...</div>;
