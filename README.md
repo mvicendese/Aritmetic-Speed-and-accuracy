@@ -5,7 +5,7 @@ This guide provides the steps to deploy your application to the web using GitHub
 
 ## The Goal
 
-To publish your application to a live URL (e.g., `arithmetic-sprint.web.app`) that you can share with students and teachers, without exposing your secret API Key.
+To publish your application to a live URL (e.g., `arithmetic-sprint.web.app`) that you can share with students and teachers, without exposing your secret API Keys.
 
 ---
 
@@ -22,10 +22,10 @@ To publish your application to a live URL (e.g., `arithmetic-sprint.web.app`) th
 Now, you will manually create each file from this project inside your new GitHub repository. **This is very important.**
 
 1.  In your new GitHub repository, click the **"Add file"** button and select **"Create new file"**.
-2.  For the first file, type `.gitignore` as the filename.
+2.  For the first file, type `.gitignore` as the filename (if it doesn't exist).
 3.  Copy the entire content of the `.gitignore` file from this project and paste it into the editor on GitHub.
 4.  Click the **"Commit new file"** button.
-5.  **Repeat this process for every single file in this project**, including `package.json`, `index.html`, `App.tsx`, and the now-updated `services/firebaseService.ts`.
+5.  **Repeat this process for every single file in this project**, ensuring your GitHub repository matches the final, correct project structure.
 
 ### Step 3: Connect Firebase to Your GitHub Repository
 
@@ -36,7 +36,7 @@ Now, you will manually create each file from this project inside your new GitHub
 5.  You will see an option to "Deploy a new site". Choose **"Connect to GitHub"**.
 6.  A new window will open. Authorize Firebase to access your GitHub account and select your `arithmetic-sprint` repository.
 
-### Step 4: Securely Add Your API Key to Firebase
+### Step 4: Securely Add Your API Keys to Firebase
 
 This is the most important new step for security.
 
@@ -44,8 +44,12 @@ This is the most important new step for security.
 2.  Look for a section called **"Environment variables"**.
 3.  Click **"Add variable"**.
 4.  In the **Variable name** box, type exactly: `VITE_FIREBASE_API_KEY`
-5.  In the **Value** box, paste your full API key (it starts with `AIzaSy...`).
+5.  In the **Value** box, paste your full Firebase API key (it starts with `AIzaSy...`).
 6.  Click **"Add"** to save the variable.
+7.  Click **"Add variable"** again.
+8.  In the **Variable name** box, type exactly: `VITE_GEMINI_API_KEY`
+9.  In the **Value** box, paste your Gemini API Key (you can get this from [Google AI Studio](https://aistudio.google.com/app/apikey)).
+10. Click **"Add"** to save the variable.
 
 ### Step 5: Configure and Deploy
 
@@ -55,6 +59,6 @@ This is the most important new step for security.
 4.  Check the box to **"Deploy on every push to the main branch"**.
 5.  Click **"Save and deploy"**.
 
-Firebase will now automatically pull your code, securely inject your API key, build the application, and deploy it. The first deployment may take a few minutes.
+Firebase will now automatically pull your code, securely inject your API keys, build the application, and deploy it. The first deployment may take a few minutes.
 
 Once it's finished, you will see your live **Hosting URL** right there on the Firebase Hosting dashboard.
