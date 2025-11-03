@@ -5,7 +5,7 @@ import { DEFAULT_LEVEL_PARAMS_INT, DEFAULT_LEVEL_PARAMS_FRAC } from '../constant
 // --- FIREBASE CONFIGURATION ---
 const FIREBASE_PROJECT_ID = 'arithmetic-sprint'; 
 // The API Key is now read securely from an environment variable
-const FIREBASE_API_KEY = import.meta.env.VITE_FIREBASE_API_KEY;
+const FIREBASE_API_KEY = import.meta.env?.VITE_FIREBASE_API_KEY;
 
 const BASE_URL = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents`;
 

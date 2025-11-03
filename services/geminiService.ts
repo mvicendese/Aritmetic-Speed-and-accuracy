@@ -1,8 +1,9 @@
+
 import { GoogleGenAI } from "@google/genai";
 import { StudentData, TestAttempt, RationalNumber } from '../types';
 
 // Securely get the API key from environment variables
-const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
+const GEMINI_API_KEY = import.meta.env?.VITE_GEMINI_API_KEY;
 
 const formatOperands = (operands: (number | RationalNumber)[]): string => {
   return operands.map(op => {
