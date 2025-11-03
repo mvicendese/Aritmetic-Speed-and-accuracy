@@ -1,10 +1,11 @@
+
 import { AppDatabase, User, Class, Role, StudentUser, StudentData, TestAttempt } from '../types';
 import { DEFAULT_LEVEL_PARAMS_INT, DEFAULT_LEVEL_PARAMS_FRAC } from '../constants';
 
 // --- FIREBASE CONFIGURATION ---
-// IMPORTANT: Replace these placeholder values with your own Firebase project details.
-const FIREBASE_PROJECT_ID = 'arithmetic-sprint'; // <-- Your Project ID is set!
-const FIREBASE_API_KEY = 'AIzaSyAb0Ih_96z8z5NIVNZy8rpw6iz43sl9r_c';   // <-- Your Web API Key is now set!
+const FIREBASE_PROJECT_ID = 'arithmetic-sprint'; 
+// The API Key is now read securely from an environment variable
+const FIREBASE_API_KEY = import.meta.env.VITE_FIREBASE_API_KEY;
 
 const BASE_URL = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents`;
 
@@ -66,8 +67,8 @@ const toFirestore = (data: any): any => {
 // --- AUTHENTICATION API ---
 
 export const login = async (usernameOrEmail: string, password: string): Promise<{ user: User | null; error?: string }> => {
-  if (FIREBASE_PROJECT_ID.includes('YOUR_PROJECT_ID') || FIREBASE_API_KEY.includes('YOUR_WEB_API_KEY')) {
-    return { user: null, error: "Firebase is not configured. Please update services/firebaseService.ts with your Project ID and API Key." };
+  if (!FIREBASE_API_KEY) {
+    return { user: null, error: "Firebase API Key is not configured. Please follow the deployment instructions in README.md." };
   }
   
   const trimmedUsernameOrEmail = usernameOrEmail.trim().toLowerCase();
@@ -97,7 +98,7 @@ export const login = async (usernameOrEmail: string, password: string): Promise<
     console.error("Login failed:", error);
     const err = error as Error;
     if (err.message.includes('API key not valid')) {
-       return { user: null, error: 'The provided Firebase API Key is invalid. Please check it in firebaseService.ts.' };
+       return { user: null, error: 'The provided Firebase API Key is invalid. Please check your Firebase Hosting environment variables.' };
     }
     return { user: null, error: 'Could not connect to the server. Please try again later.' };
   }
