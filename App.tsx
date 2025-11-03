@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { TOTAL_QUESTIONS, TEST_DURATION_SECONDS, DEFAULT_LEVEL_PARAMS_INT, DEFAULT_LEVEL_PARAMS_FRAC } from './constants';
 import { Question, StudentData, TestAttempt, RationalNumber, AnsweredQuestion, User, AdminUser, TeacherUser, StudentUser, Class, Role } from './types';
@@ -87,7 +88,7 @@ const LoginScreen: React.FC<{ onLogin: (user: User) => void }> = ({ onLogin }) =
                         type="text" 
                         value={email} 
                         onChange={e => setEmail(e.target.value)}
-                        placeholder="admin@sprint.com or student.name"
+                        placeholder="e.g. admin@sprint.com or john.doe"
                         className="w-full p-3 mt-1 rounded bg-slate-200 dark:bg-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
                         disabled={isLoading}
                     />
@@ -162,15 +163,14 @@ const UserManagement: React.FC = () => {
 
     const handleAddUser = async (e: React.FormEvent) => {
       e.preventDefault();
-      const { role, ...baseUser } = formState;
-      let userData: Omit<User, 'id'>;
+      const { role, firstName, surname, email, password } = formState;
       
-      if (role === 'student') {
-         userData = { ...baseUser, role: 'student', locked: false, password: formState.password, firstName: formState.firstName, surname: formState.surname };
-      } else {
-         userData = { ...baseUser, role, email: formState.email, password: formState.password, firstName: formState.firstName, surname: formState.surname };
-      }
-      
+      // Fix: Construct user data in a way that TypeScript can correctly infer the discriminated union type
+      // without triggering excess property checks on the base `User` union.
+      const userData = role === 'student'
+          ? { role: 'student', firstName, surname, password, locked: false }
+          : { role: 'teacher', firstName, surname, password, email };
+
       const newUser = await api.createUser(userData);
       setUsers(prev => [...prev, newUser]);
       setFormState({ firstName: '', surname: '', email: '', password: '', role: 'teacher' as Role }); // Reset form

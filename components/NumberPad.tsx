@@ -15,7 +15,7 @@ const NumberPad: React.FC<NumberPadProps> = ({ onKeyPress }) => {
     >
       {value === 'Backspace' ? (
         <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2M3 12l6.414 6.414a2 2 0 002.828 0L21 12M3 12l6.414-6.414a2 2 0 012.828 0L21 12" />
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m-2-2h-8a2 2 0 01-2-2V7a2 2 0 012-2h8a2 2 0 012 2v2" />
         </svg>
       ) : (
         value

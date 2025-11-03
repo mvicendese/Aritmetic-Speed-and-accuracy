@@ -119,7 +119,6 @@ export async function analyzeClassTrends(
       contents: prompt,
     });
     return response.text;
-    // FIX: Added curly braces to the catch block to fix a syntax error.
   } catch (error) {
     console.error("Error calling Gemini API:", error);
     return "There was an error analyzing class trends. Please try again later.";

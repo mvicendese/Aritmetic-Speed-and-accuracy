@@ -40,8 +40,14 @@ export const logout = async (): Promise<void> => {
 };
 
 export const getCurrentUser = async (): Promise<User | null> => {
-    const userJson = sessionStorage.getItem('currentUser');
-    return userJson ? JSON.parse(userJson) : null;
+    try {
+        const userJson = sessionStorage.getItem('currentUser');
+        return userJson ? JSON.parse(userJson) : null;
+    } catch (error) {
+        console.error("Failed to parse user from sessionStorage", error);
+        sessionStorage.removeItem('currentUser'); // Clear corrupted data
+        return null;
+    }
 }
 
 
