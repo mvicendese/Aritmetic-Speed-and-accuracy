@@ -1,9 +1,12 @@
 
+
 import { GoogleGenAI } from "@google/genai";
 import { StudentData, TestAttempt, RationalNumber } from '../types';
 
-// Securely get the API key from environment variables
-const GEMINI_API_KEY = import.meta.env?.VITE_GEMINI_API_KEY;
+// Per @google/genai guidelines, API key must come from process.env.API_KEY.
+// We declare process here to satisfy TypeScript in a browser environment,
+// assuming the execution context will provide it.
+declare const process: { env: { API_KEY?: string } };
 
 const formatOperands = (operands: (number | RationalNumber)[]): string => {
   return operands.map(op => {
@@ -13,14 +16,16 @@ const formatOperands = (operands: (number | RationalNumber)[]): string => {
 };
 
 export async function analyzeStudentHistory(history: TestAttempt[]): Promise<string> {
-  if (!GEMINI_API_KEY) {
-    return "Gemini API Key is not configured. Please follow the deployment instructions in README.md to add the VITE_GEMINI_API_KEY.";
+  // Fix: Adhere to Gemini API guidelines by using process.env.API_KEY
+  if (!process.env.API_KEY) {
+    return "Gemini API Key is not configured. Please ensure API_KEY is set in your environment variables.";
   }
   if (history.length === 0) {
     return "No history to analyze.";
   }
 
-  const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
+  // Fix: Adhere to Gemini API guidelines for initialization
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
   const formattedHistory = history.map((attempt, index) => {
     const questionsSummary = attempt.answeredQuestions.map(q => 
@@ -80,14 +85,16 @@ export async function analyzeClassTrends(
   classStudentsData: { studentName: string; data: StudentData }[],
   totalQuestions: number
 ): Promise<string> {
-  if (!GEMINI_API_KEY) {
+  // Fix: Adhere to Gemini API guidelines by using process.env.API_KEY
+  if (!process.env.API_KEY) {
     return "Gemini API Key is not configured. Could not analyze class trends.";
   }
   if (classStudentsData.length === 0) {
     return "There are no students in this class to analyze.";
   }
 
-  const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
+  // Fix: Adhere to Gemini API guidelines for initialization
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   
   const formattedData = classStudentsData
     .map(student => {

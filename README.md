@@ -1,4 +1,3 @@
-
 # Arithmetic Sprint - Deployment Guide
 
 This guide provides the steps to deploy your application to the web using GitHub and Firebase Hosting. This method is secure and does not require you to run any commands on your own computer.
@@ -62,3 +61,6 @@ This is the most important new step for security.
 Firebase will now automatically pull your code, securely inject your API keys, build the application, and deploy it. The first deployment may take a few minutes.
 
 Once it's finished, you will see your live **Hosting URL** right there on the Firebase Hosting dashboard.
+
+---
+Test update: Tue Jul 30 2024 18:02:45 GMT+0000 (Coordinated Universal Time)

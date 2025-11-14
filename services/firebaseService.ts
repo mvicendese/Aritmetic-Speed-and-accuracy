@@ -1,3 +1,5 @@
+// Fix: Add reference to vite client types to resolve error on import.meta.env
+/// <reference types="vite/client" />
 
 import { AppDatabase, User, Class, Role, StudentUser, StudentData, TestAttempt } from '../types';
 import { DEFAULT_LEVEL_PARAMS_INT, DEFAULT_LEVEL_PARAMS_FRAC } from '../constants';
